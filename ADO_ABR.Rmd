@@ -1,0 +1,108 @@
+---
+title: "Adolescent Birth Rate vs. Birth Reg - UNFPA Regions"
+author: "Shabrina Mardevi"
+date: "31/12/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(haven)       
+library(tidyverse)  
+library(naniar)  
+library(survey)
+library(srvyr)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(janitor)
+library(ggplot2)
+library(readxl)
+library(openxlsx)
+library(pointblank)
+library(ggrepel)
+```
+
+
+```{r error=FALSE, warning=FALSE, message=FALSE}
+# Load WPP Age Specific Fertility & UNICEF Birth Registration Data
+br_uni <- read_excel("./Ado BR/WPP2019_FERT_F07_AGE_SPECIFIC_FERTILITY.xlsx",
+                     skip = 16)
+birt_cert_uni <- read_excel("./Ado BR/Birth_registration_database_June-2020.xlsx",
+                            skip = 9, n_max = 203)
+```
+```{r error=FALSE, warning=FALSE, message=FALSE}
+# Load UNPA Countries + Regions Lookup
+lookup_table_all <- 
+  as_tibble(read_excel("UNFPA_countries.xlsx"))
+
+``` 
+
+```{r error=FALSE, warning=FALSE, message=FALSE}
+# Clean Adolescent Birth Rate (WPP)
+ado_br_uni_clean <- 
+  br_uni %>% 
+  clean_names() %>% 
+  rename(countries_areas = region_subregion_country_or_area) %>% 
+  rename (ado_afr = x15_19) %>% 
+  select(c(countries_areas, period:ado_afr)) %>%
+  filter (period == c("2010-2015", "2015-2020")) %>% 
+  group_by(countries_areas) %>% 
+  summarise(ado_afr = (sum(as.numeric(ado_afr))/2))
+```
+
+```{r error=FALSE, warning=FALSE, message=FALSE}
+#Prep UNICEF Birth Cert. Data
+birt_cert_uni_clean <-
+  birt_cert_uni %>% 
+  clean_names() %>% 
+  select(1:2) %>% 
+  rename_all(~c("countries_areas", "br_percent"))
+```
+
+```{r error=FALSE, warning=FALSE, message=FALSE}
+# Merge WPP & UNICEF Data
+br_bc_merge <-
+  left_join(lookup_table_all, 
+            merge(birt_cert_uni_clean, ado_br_uni_clean), 
+            by="countries_areas")
+```
+
+```{r error=FALSE, warning=FALSE, message=FALSE}
+# More Cleaning & Data Prep for Viz
+br_bc_clean <-
+br_bc_merge %>% 
+  replace_with_na_all(condition = ~.x == "–") %>% 
+  mutate_at(.vars = 3:4, ~as.numeric(.)) %>% 
+  mutate(countries_areas = recode(countries_areas, 
+                                  "Democratic Republic of the Congo" = "D. R. Congo",
+                                  "United Republic of Tanzania" = "Tanzania", 
+                                  "Lao People's Democratic Republic" = "Lao PDR"))%>% 
+  filter(!(is.na(br_percent))) %>% 
+  filter(!(is.na(ado_afr))) 
+```
+
+
+```{r fig.height = 7, fig.width = 10}
+# Plot
+ggplot(br_bc_clean, aes(br_percent, ado_afr, color = UNFPA_Regions)) +
+  geom_jitter() +
+  geom_text(data=subset(br_bc_clean, ((br_percent < 35 & ado_afr > 100) |
+                                        (countries_areas %in% 
+                                           c("Benin", "Congo", 
+                                             "Burkina Faso",
+                                            "Guinea","Senegal","Guatemala",
+                                             "Ecuador","Colombia",
+                                             "Papua New Guinea","Equatorial Guinea",
+                                            "Niger","Mali","Mozambique", "Lao PDR", "Ethiopia") 
+                                        ))),
+            aes(br_percent,ado_afr,label=countries_areas), size = 2.75, vjust = 1.5, color = "Black") +
+  theme_minimal() +
+  labs(title = "Adolescent Birth Rate by Birth Registration Completeness\nUNFPA Country and Regional Comparisons (2010-2020)", 
+       x = "Birth Registration Completeness (%)\n", 
+       y = "Adolescent Birth Rate (per 1,000 women)", color = "UNFPA Regions", 
+       caption = "Data sources: UNICEF - Birth Registration Data 2020 & UN World Population Prospect Age-Specific Fertility Rates Data 2019") 
+```
+
+Note: Label selections were by request
